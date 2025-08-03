@@ -1,5 +1,6 @@
 import UIKit
 import AudioToolbox
+import AVFoundation
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -15,7 +16,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 }
 
 class LaunchViewController: UIViewController {
-    let logo = UIImageView(image: UIImage(named: "logo"))
     let mainVC = WebViewController()
 
     override func viewDidLoad() {
@@ -35,47 +35,44 @@ class LaunchViewController: UIViewController {
         blurView.frame = view.bounds
         view.addSubview(blurView)
 
-        // 背景渐变 + 模糊动画
-        gradient.opacity = 0
-        blurView.alpha = 1
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(1.0)
-        gradient.opacity = 1
-        CATransaction.commit()
+        guard let path = Bundle.main.path(forResource: "intro", ofType:"mov") else {
+            print("Video not found")
+            return
+        }
+        let player = AVPlayer(url: URL(fileURLWithPath: path))
+        let playerLayer = AVPlayerLayer(player: player)
+        playerLayer.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        playerLayer.position = view.center
+        playerLayer.backgroundColor = UIColor.clear.cgColor
+        playerLayer.videoGravity = .resizeAspect
+        playerLayer.opacity = 0
+        view.layer.addSublayer(playerLayer)
+        player.play()
 
-        UIView.animate(withDuration: 1.2) {
-            blurView.alpha = 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(0.8)
+            playerLayer.opacity = 1
+            CATransaction.commit()
         }
 
-        // 设置 logo
-        logo.contentMode = .scaleAspectFit
-        logo.translatesAutoresizingMaskIntoConstraints = false
-        logo.alpha = 0
-        view.addSubview(logo)
-
-        NSLayoutConstraint.activate([
-            logo.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            logo.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            logo.widthAnchor.constraint(equalToConstant: 100),
-            logo.heightAnchor.constraint(equalToConstant: 100)
-        ])
-
-        // logo 呼吸缩放 + 轻微旋转动画序列
-        UIView.animate(withDuration: 1.0, delay: 0.3, options: [.curveEaseInOut], animations: {
-            self.logo.alpha = 1
-            self.logo.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
-        }) { _ in
-            UIView.animate(withDuration: 1.0, delay: 0, options: [.autoreverse, .repeat, .allowUserInteraction], animations: {
-                self.logo.transform = CGAffineTransform(scaleX: 1.05, y: 1.05).rotated(by: .pi / 30)
-            }, completion: nil)
-        }
+        // 添加播放结束通知监听
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(videoDidFinishPlaying(_:)),
+            name: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem
+        )
 
         // 提前加载主控制器视图
         _ = mainVC.view
+    }
 
-        // 延时切换主界面动画
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) {
-            self.transitionToMainScreen(blurView: blurView)
+    @objc func videoDidFinishPlaying(_ notification: Notification) {
+        if let blurView = view.subviews.compactMap({ $0 as? UIVisualEffectView }).first {
+            transitionToMainScreen(blurView: blurView)
+        } else {
+            transitionToMainScreen(blurView: UIVisualEffectView(effect: nil))
         }
     }
 
@@ -83,26 +80,14 @@ class LaunchViewController: UIViewController {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = scene.windows.first else { return }
 
-        // 先停止 logo 及脉冲动画
-        logo.layer.removeAllAnimations()
-        view.layer.sublayers?.forEach { layer in
-            if layer is CAShapeLayer {
-                layer.removeAllAnimations()
-            }
-        }
-
-        // 模糊渐显过渡
-        blurView.alpha = 0
-        UIView.animate(withDuration: 0.8, animations: {
-            self.logo.transform = CGAffineTransform(scaleX: 3.0, y: 3.0)
-            self.logo.alpha = 0
-            blurView.alpha = 1
+        UIView.animate(withDuration: 0.6, animations: {
             self.view.alpha = 0
+            blurView.alpha = 0
         }) { _ in
-            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
-            self.view.removeFromSuperview()
             window.rootViewController = self.mainVC
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             window.makeKeyAndVisible()
+
             window.alpha = 0
             UIView.animate(withDuration: 0.6) {
                 window.alpha = 1
